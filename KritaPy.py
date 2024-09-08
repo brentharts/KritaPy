@@ -17,6 +17,7 @@ def extractMergedImageFromKRA(kra):
 	return image
 
 def parse_kra(kra, verbose=False, blender_curves=False):
+	kra_fname = os.path.split(kra)[-1]
 	arc = zipfile.ZipFile(kra,'r')
 	print(arc)
 	dump = {'layers':[]}
@@ -69,10 +70,13 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 		pyscript = None
 
 	pixlayers = []
+	reflayers = []
 	xlayers = {}
 	for layer in doc.getElementsByTagName('layer'):
 		print(layer)
 		print(layer.toxml())
+		x = int(layer.getAttribute('x'))
+		y = int(layer.getAttribute('x'))
 		tag = layer.getAttribute('filename')
 		xlayers[tag] = layer
 		if layer.getAttribute('nodetype')=='shapelayer':
@@ -94,7 +98,28 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 				bobs.append(ob)
 		elif layer.getAttribute('nodetype')=='paintlayer':
 			pixlayers.append( tag )
-
+		elif layer.getAttribute('nodetype')=='filelayer':
+			src = layer.getAttribute('source')
+			assert os.path.isfile(src)
+			reflayers.append( {'source':src, 'x':x, 'y':y} )
+			if src.endswith('.kra'):
+				## nested kra
+				bpy.ops.object.empty_add(type="SINGLE_ARROW")
+				ob = bpy.context.active_object
+				ob.name = src
+				bobs.append(ob)
+				ob['KRITA'] = src
+			else:
+				bpy.ops.object.empty_add(type="IMAGE")
+				ob = bpy.context.active_object
+				bobs.append(ob)
+				img = bpy.data.images.load(src)
+				ob.data = img
+				ob.location.x = x
+				ob.location.z = y
+				ob.rotation_euler.x = math.pi/2
+				ob.scale.x = img.width * 0.01
+				ob.scale.y = img.height * 0.01
 
 
 	while pixlayers:
@@ -135,9 +160,16 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 			ob.scale.y = height * 0.01
 
 	if bpy:
+		col = bpy.data.collections.new(kra_fname)
+		bpy.context.scene.collection.children.link(col)
+
 		bpy.ops.object.empty_add(type="ARROWS")
 		root = bpy.context.active_object
-		for o in bobs: o.parent = root
+		col.objects.link(root)
+		for o in bobs:
+			o.parent = root
+			col.objects.link(o)
+
 
 
 	if bpy and pyscript:
