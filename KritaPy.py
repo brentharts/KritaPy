@@ -7,6 +7,8 @@ try:
 except:
 	bpy = None
 
+SCRIPTS = []
+
 def extractMergedImageFromKRA(kra):
 	from PIL import Image
 	archive = zipfile.ZipFile(kra,'r')
@@ -140,9 +142,11 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 		print(pyscript)
 		gen.append(pyscript)
 		txt = bpy.data.texts.new(name='__krita2blender__.py')
-		txt.from_string(PYHEADER + '\n'.join(gen))
+		#txt.from_string(PYHEADER + '\n'.join(gen))
+		#exec(pyscript, scope)
+		txt.from_string(pyscript)
+		SCRIPTS.append({'scope':scope, 'script':txt})
 
-		exec(pyscript, scope)
 	else:
 		print('user python script:', pyscript)
 
@@ -205,3 +209,35 @@ class KritaWorldPanel(bpy.types.Panel):
 	bl_context = "world"
 	def draw(self, context):
 		self.layout.operator("krita.import_kra")
+
+
+
+_timer = None
+@bpy.utils.register_class
+class KritaPyOperator(bpy.types.Operator):
+	"Krita Python Scripts"
+	bl_idname = "krita.run"
+	bl_label = "krita_run"
+	bl_options = {'REGISTER'}
+	def modal(self, context, event):
+		if event.type == "TIMER":
+			for s in SCRIPTS:
+				scope  = s['scope']
+				script = s['script'].as_string()
+				exec(script, scope, scope)
+		return {'PASS_THROUGH'} # will not supress event bubbles
+
+	def invoke (self, context, event):
+		global _timer
+		if _timer is None:
+			_timer = self._timer = context.window_manager.event_timer_add(
+				time_step=0.025,
+				window=context.window
+			)
+			context.window_manager.modal_handler_add(self)
+			return {'RUNNING_MODAL'}
+		return {'FINISHED'}
+
+	def execute (self, context):
+		return self.invoke(context, None)
+bpy.ops.krita.run()
