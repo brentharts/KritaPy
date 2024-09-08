@@ -128,12 +128,20 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 			bobs.append(ob)
 			img = bpy.data.images.load('/tmp/%s.png' % tag)
 			ob.data = img
-			ob.location.y = len(pixlayers) * 0.1
+			ob.location.y = len(pixlayers) * 0.001 * height
 			ob.name = xlayers[tag].getAttribute('name')
 			ob.rotation_euler.x = math.pi/2
+			ob.scale.x = width * 0.01
+			ob.scale.y = height * 0.01
+
+	if bpy:
+		bpy.ops.object.empty_add(type="ARROWS")
+		root = bpy.context.active_object
+		for o in bobs: o.parent = root
+
 
 	if bpy and pyscript:
-		scope = {'bpy':bpy, 'random':random, 'uniform':uniform}
+		scope = {'bpy':bpy, 'random':random, 'uniform':uniform, 'self':root}
 		gen = []
 		for ob in bobs:
 			scope[ safename(ob.name) ] = ob
@@ -149,6 +157,8 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 
 	else:
 		print('user python script:', pyscript)
+
+
 
 	return dump
 
