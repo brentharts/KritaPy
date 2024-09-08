@@ -109,6 +109,8 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 				ob.name = src
 				bobs.append(ob)
 				ob['KRITA'] = src
+				ob.location.x = x * 0.01
+				ob.location.z = y * 0.01
 			else:
 				bpy.ops.object.empty_add(type="IMAGE")
 				ob = bpy.context.active_object
@@ -190,9 +192,10 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 	else:
 		print('user python script:', pyscript)
 
-
-
-	return dump
+	if bpy:
+		return col
+	else:
+		return dump
 
 PYHEADER = '''
 import bpy, mathutils
@@ -253,7 +256,7 @@ class KritaWorldPanel(bpy.types.Panel):
 		self.layout.operator("krita.import_kra")
 
 
-
+_lazy_loads = {}
 _timer = None
 @bpy.utils.register_class
 class KritaPyOperator(bpy.types.Operator):
@@ -263,6 +266,17 @@ class KritaPyOperator(bpy.types.Operator):
 	bl_options = {'REGISTER'}
 	def modal(self, context, event):
 		if event.type == "TIMER":
+			for o in bpy.data.objects:
+				if 'KRITA' in o.keys():
+					kra = o['KRITA']
+					if not kra: continue
+					if kra not in _lazy_loads:
+						col = parse_kra(kra)
+						_lazy_loads[kra] = col
+					o.instance_type = 'COLLECTION'
+					o.instance_collection = _lazy_loads[kra]
+					o['KRITA']=None
+
 			for s in SCRIPTS:
 				scope  = s['scope']
 				script = s['script'].as_string()
