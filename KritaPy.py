@@ -63,11 +63,17 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 	## only if the user renames the title of the document so that
 	## it ends with .py, then it will be run in blender python.
 	if title.endswith('.py'):
-		#pyscript = IMAGE.getAttribute('description')  ## not the right one
+		#sub = IMAGE.getAttribute('description')  ## always empty?
 		pyscript = info.getElementsByTagName('abstract')[0]
 		pyscript = pyscript.firstChild.nodeValue
 	else:
 		pyscript = None
+
+	bprops = info.getElementsByTagName('keyword')
+	if bprops and bprops[0].firstChild:
+		bprops = bprops[0].firstChild.nodeValue.split()
+	else:
+		bprops = None
 
 	pixlayers = []
 	reflayers = []
@@ -171,6 +177,17 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 		for o in bobs:
 			o.parent = root
 			col.objects.link(o)
+
+		if bprops:
+			for p in bprops:
+				v = 0.0
+				if '=' in p:
+					n,v = p.split('=')
+					try: v = float(v)
+					except: pass
+				else:
+					n = p
+				root[n] = float(v)
 
 
 
