@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os, sys, io, zipfile, xml.dom.minidom, subprocess, math
+from random import random, uniform
+
 try:
 	import bpy
 except:
@@ -32,6 +34,15 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 
 	if verbose: print(layers)
 
+	x = arc.read('documentinfo.xml')
+	if verbose:
+		print('-'*80)
+		print(x.decode('utf-8'))
+		print('-'*80)
+	info = xml.dom.minidom.parseString(x)
+	print(info)
+
+
 	x = arc.read('maindoc.xml')
 	if verbose:
 		print('-'*80)
@@ -49,7 +60,9 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 	## only if the user renames the title of the document so that
 	## it ends with .py, then it will be run in blender python.
 	if title.endswith('.py'):
-		pyscript = IMAGE.getAttribute('description')
+		#pyscript = IMAGE.getAttribute('description')  ## not the right one
+		pyscript = info.getElementsByTagName('abstract')[0]
+		pyscript = pyscript.firstChild.nodeValue
 	else:
 		pyscript = None
 
@@ -81,13 +94,6 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 			pixlayers.append( tag )
 
 
-	x = arc.read('documentinfo.xml')
-	if verbose:
-		print('-'*80)
-		print(x)
-		print('-'*80)
-	#info = xml.dom.minidom.parseString(x)
-	#print(info)
 
 	while pixlayers:
 		tag = pixlayers.pop()
@@ -125,12 +131,27 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 			ob.rotation_euler.x = math.pi/2
 
 	if bpy and pyscript:
-		scope = {'bpy':bpy}
+		scope = {'bpy':bpy, 'random':random, 'uniform':uniform}
+		gen = []
 		for ob in bobs:
 			scope[ safename(ob.name) ] = ob
+			gen.append('%s = bpy.data.objects["%s"]' % (safename(ob.name), ob.name))
+		print('exec script:')
+		print(pyscript)
+		gen.append(pyscript)
+		txt = bpy.data.texts.new(name='__krita2blender__.py')
+		txt.from_string(PYHEADER + '\n'.join(gen))
+
 		exec(pyscript, scope)
+	else:
+		print('user python script:', pyscript)
 
 	return dump
+
+PYHEADER = '''
+import bpy, mathutils
+from random import random, uniform
+'''
 
 def safename(n):
 	import string
