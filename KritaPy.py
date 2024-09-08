@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import os, sys, io, zipfile, xml.dom.minidom, subprocess
-from PIL import Image
-
+try:
+	import bpy
+except:
+	bpy = None
 
 def extractMergedImageFromKRA(kra):
+	from PIL import Image
 	archive = zipfile.ZipFile(kra,'r')
 	extract_image = archive.read('mergedimage.png')
 	image = Image.open(io.BytesIO(extract_image))
@@ -84,16 +87,39 @@ def parse_kra(kra, verbose=False):
 		print(cmd)
 		subprocess.check_call(cmd)
 
+		if bpy:
+			bpy.ops.object.empty_add(type="IMAGE")
+			ob = bpy.context.active_object
+			img = bpy.data.images.load('/tmp/%s.png' % tag)
+			ob.data = img
+			ob.location.z = len(pixlayers) * 0.1
+
 	print(dump)
 	return dump
 
+
+
 if __name__ == "__main__":
+	run_blender = False
 	kras = []
 	for arg in sys.argv:
 		if arg.endswith('.kra'):
 			kras.append(arg)
+		elif arg=='--blender':
+			run_blender=True
 
-
-	for kra in kras:
-		a = parse_kra( kra )
+	if run_blender:
+		cmd = ['blender', '--python', __file__]
+		if kras: cmd += ['--'] + kras
+		print(cmd)
+		subprocess.check_call(cmd)
+		sys.exit()
+	elif kras:
+		for kra in kras:
+			a = parse_kra( kra )
+	elif bpy:
+		pass
+	else:
+		print('no krita .kra files given')
+		sys.exit()
 
