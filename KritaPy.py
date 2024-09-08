@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, io, zipfile, xml.dom.minidom, subprocess
+import os, sys, io, zipfile, xml.dom.minidom, subprocess, math
 try:
 	import bpy
 except:
@@ -12,11 +12,13 @@ def extractMergedImageFromKRA(kra):
 	image = Image.open(io.BytesIO(extract_image))
 	return image
 
-def parse_kra(kra, verbose=False):
+def parse_kra(kra, verbose=False, blender_curves=False):
 	arc = zipfile.ZipFile(kra,'r')
 	print(arc)
 	dump = {'layers':[]}
 	layers = {}
+	if bpy: bobs = []
+
 	for f in arc.filelist:
 		print(f)
 		#files.append(f.filename)
@@ -49,6 +51,19 @@ def parse_kra(kra, verbose=False):
 			svg = arc.read( layers[tag][0] ).decode('utf-8')
 			print(svg)
 			dump['layers'].append(svg)
+			if bpy:
+				svgtmp = '/tmp/__krita2blender__.svg'
+				open(svgtmp,'w').write(svg)
+				if blender_curves:
+					bpy.ops.import_curve.svg(filepath=svgtmp)
+					ob = bpy.context.active_object  ## TODO this is not correct?
+					ob.name = layer.getAttribute('name') + '.CURVE'
+					ob.scale *= 100
+					bobs.append(ob)
+				bpy.ops.wm.gpencil_import_svg(filepath=svgtmp, scale=100, resolution=5)
+				ob = bpy.context.active_object
+				ob.name = layer.getAttribute('name')
+				bobs.append(ob)
 		elif layer.getAttribute('nodetype')=='paintlayer':
 			pixlayers.append( tag )
 
@@ -90,9 +105,12 @@ def parse_kra(kra, verbose=False):
 		if bpy:
 			bpy.ops.object.empty_add(type="IMAGE")
 			ob = bpy.context.active_object
+			bobs.append(ob)
 			img = bpy.data.images.load('/tmp/%s.png' % tag)
 			ob.data = img
-			ob.location.z = len(pixlayers) * 0.1
+			ob.location.y = len(pixlayers) * 0.1
+			ob.name = xlayers[tag].getAttribute('name')
+			ob.rotation_euler.x = math.pi/2
 
 	print(dump)
 	return dump
