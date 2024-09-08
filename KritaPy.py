@@ -184,3 +184,24 @@ if __name__ == "__main__":
 		print('no krita .kra files given')
 		sys.exit()
 
+## in blender below this point ##
+from bpy_extras.io_utils import ImportHelper
+
+@bpy.utils.register_class
+class Krita4Blender(bpy.types.Operator, ImportHelper):
+	bl_idname = 'krita.import_kra'
+	bl_label  = 'Import Krita File (.kra)'
+	filter_glob : bpy.props.StringProperty(default='*.kra')
+	def execute(self, context):
+		parse_kra(self.filepath)
+		return {'FINISHED'}
+
+@bpy.utils.register_class
+class KritaWorldPanel(bpy.types.Panel):
+	bl_idname = "WORLD_PT_KritaWorld_Panel"
+	bl_label = "Krita"
+	bl_space_type = "PROPERTIES"
+	bl_region_type = "WINDOW"
+	bl_context = "world"
+	def draw(self, context):
+		self.layout.operator("krita.import_kra")
