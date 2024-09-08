@@ -20,7 +20,7 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 	if bpy: bobs = []
 
 	for f in arc.filelist:
-		print(f)
+		if verbose: print(f)
 		#files.append(f.filename)
 		if '/layers/' in f.filename:
 			a = f.filename.split('/layers/')[-1]
@@ -30,16 +30,29 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 				layers[tag] = []
 			layers[tag].append(f.filename)
 
-	print(layers)
+	if verbose: print(layers)
 
 	x = arc.read('maindoc.xml')
 	if verbose:
 		print('-'*80)
-		print(x)
+		print(x.decode('utf-8'))
 		print('-'*80)
 	doc = xml.dom.minidom.parseString(x)
 	print(doc)
-	print(dir(doc))
+
+	IMAGE = doc.getElementsByTagName('IMAGE')[0]
+	width = int(IMAGE.getAttribute('width'))
+	height = int(IMAGE.getAttribute('height'))
+	title = IMAGE.getAttribute('name')
+
+	## allows for python logic to be put in a krita description,
+	## only if the user renames the title of the document so that
+	## it ends with .py, then it will be run in blender python.
+	if title.endswith('.py'):
+		pyscript = IMAGE.getAttribute('description')
+	else:
+		pyscript = None
+
 	pixlayers = []
 	xlayers = {}
 	for layer in doc.getElementsByTagName('layer'):
@@ -79,12 +92,10 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 	while pixlayers:
 		tag = pixlayers.pop()
 		print('saving pixel layer:', tag)
-		#arc = zipfile.ZipFile(kra,'r')
 		tmp = '/tmp/tmp.kra'
 		aout = zipfile.ZipFile(tmp,'w')
 
 		root = doc.getElementsByTagName('layers')[0]
-		print(dir(root))
 		while root.firstChild: root.removeChild(root.firstChild)
 		root.appendChild( xlayers[tag] )
 
@@ -103,6 +114,7 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 		subprocess.check_call(cmd)
 
 		if bpy:
+			print(xlayers[tag].toxml())
 			bpy.ops.object.empty_add(type="IMAGE")
 			ob = bpy.context.active_object
 			bobs.append(ob)
@@ -112,10 +124,20 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 			ob.name = xlayers[tag].getAttribute('name')
 			ob.rotation_euler.x = math.pi/2
 
-	print(dump)
+	if bpy and pyscript:
+		scope = {'bpy':bpy}
+		for ob in bobs:
+			scope[ safename(ob.name) ] = ob
+		exec(pyscript, scope)
+
 	return dump
 
-
+def safename(n):
+	import string
+	nope = string.punctuation + string.whitespace
+	for c in nope:
+		n = n.replace(c,'_')
+	return n
 
 if __name__ == "__main__":
 	run_blender = False
@@ -134,7 +156,7 @@ if __name__ == "__main__":
 		sys.exit()
 	elif kras:
 		for kra in kras:
-			a = parse_kra( kra )
+			a = parse_kra( kra, verbose='--verbose' in sys.argv )
 	elif bpy:
 		pass
 	else:
