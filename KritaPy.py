@@ -82,7 +82,7 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 		print(layer)
 		print(layer.toxml())
 		x = int(layer.getAttribute('x'))
-		y = int(layer.getAttribute('x'))
+		y = int(layer.getAttribute('y'))
 		tag = layer.getAttribute('filename')
 		xlayers[tag] = layer
 		if layer.getAttribute('nodetype')=='shapelayer':
@@ -115,8 +115,10 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 				ob.name = src
 				bobs.append(ob)
 				ob['KRITA'] = src
-				ob.location.x = x * 0.01
-				ob.location.z = y * 0.01
+				#ob.location.x = (x * 0.01) - (width/2)
+				#ob.location.z = (-y * 0.01) - (height/2)
+				ob.location.x = (x-(width/2)) * 0.01
+				ob.location.z = -(y-(height/2)) * 0.01 
 			else:
 				bpy.ops.object.empty_add(type="IMAGE")
 				ob = bpy.context.active_object
