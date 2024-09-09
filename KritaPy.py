@@ -78,6 +78,8 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 
 	pixlayers = []
 	reflayers = []
+	obscripts = {}
+	gscripts  = {}
 	xlayers = {}
 	for layer in doc.getElementsByTagName('layer'):
 		print(layer.toxml())
@@ -141,22 +143,31 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 			if src.endswith('.svg'):
 				svg = xml.dom.minidom.parseString(open(src).read())
 				print(svg.toxml())
+				for g in svg.getElementsByTagName('g'):
+					for c in g.childNodes:
+						if hasattr(c, 'tagName') and c.tagName=='desc':
+							gscripts[g.getAttribute('id')] = c.firstChild.nodeValue
+							break
+
+				print(gscripts)
 				texts = svg.getElementsByTagName('text')
 				if texts:
 					for t in texts:
 						if not len(t.childNodes): continue
+						print(t.toxml())
 						tid = t.getAttribute('id')
 						tx  = float(t.getAttribute('x'))
 						ty  = float(t.getAttribute('y'))
-						tscl = t.getAttribute('transforms')
+						tscl = t.getAttribute('transform')
 						if tscl.startswith('scale('):
 							tsx, tsy = tscl.split('(')[-1].split(')')[0].split(',')
 							tsx = float(tsx)
 							tsy = float(tsy)
+						inkscript = []
 						for child in t.childNodes:
 							if child.tagName=='desc':
-								## metadata TODO
-								pass
+								## INKSCAPE metadata
+								inkscript.append(child.firstChild.nodeValue)
 							elif child.tagName=='tspan':
 								style = child.getAttribute('style')
 								fontsize = style.split('font-size:')[-1].split(';')[0]
@@ -168,6 +179,59 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 									ob = bpy.context.active_object
 									ob.data.body = text
 									ob.name = tid
+									ob.rotation_euler.x = math.pi/2
+									ob.data.size=fontsize * 0.01 * 2
+									ob.scale.x = tsx
+									ob.scale.y = tsy
+									bobs.append(ob)
+									if inkscript:
+										sco = {'bpy':bpy, 'self':ob, 'math':math}
+										sco[tid] = ob
+										txt = bpy.data.texts.new(name=tid+'.'+kra_fname)
+										txt.from_string('\n'.join(inkscript))
+										SCRIPTS.append({'scope':sco, 'script':txt})
+				if bpy:
+					#bpy.ops.wm.gpencil_import_svg(filepath=src, scale=100, resolution=5)
+					#ob = bpy.context.active_object
+					#ob.name = layer.getAttribute('name')
+					#bobs.append(ob)
+					#ob.location.x = x * 0.01
+					#ob.location.z = -y * 0.01 
+					for g in svg.getElementsByTagName('g'):
+						is_leaf = True
+						for c in g.childNodes:
+							if hasattr(c,'tagName') and c.tagName=='g':
+								is_leaf=False
+								break
+						if not is_leaf:
+							continue
+						gsvg = [
+							'<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
+							'<svg width="%s" height="%s" viewBox="%s" version="1.1">' % (
+								svg.documentElement.getAttribute('width'),
+								svg.documentElement.getAttribute('height'),
+								svg.documentElement.getAttribute('viewBox'),
+							),
+							svg.getElementsByTagName('defs')[0].toxml(),
+							g.toxml(),
+							'</svg>',
+						]
+						open('/tmp/%s.svg', 'w').write('\n'.join(gsvg))
+						bpy.ops.wm.gpencil_import_svg(filepath=src, scale=100, resolution=5)
+						ob = bpy.context.active_object
+						#ob.name = layer.getAttribute('name')
+						ob.name = g.getAttribute('id')
+						bobs.append(ob)
+						ob.location.x = x * 0.01
+						ob.location.z = -y * 0.01
+						if ob.name in gscripts:
+							sco = {'bpy':bpy, 'self':ob, 'math':math}
+							sco[ob.name] = ob
+							txt = bpy.data.texts.new(name=ob.name+'.'+kra_fname)
+							txt.from_string(gscripts[ob.name])
+							SCRIPTS.append({'scope':sco, 'script':txt})
+
+
 			if bpy:
 				if src.endswith('.kra'):
 					## nested kra
