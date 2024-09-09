@@ -21,6 +21,7 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 	arc = zipfile.ZipFile(kra,'r')
 	print(arc)
 	dump = {'layers':[]}
+	groups = {}
 	layers = {}
 	if bpy: bobs = []
 
@@ -79,13 +80,39 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 	reflayers = []
 	xlayers = {}
 	for layer in doc.getElementsByTagName('layer'):
-		print(layer)
 		print(layer.toxml())
+		ob = parent = None
 		x = int(layer.getAttribute('x'))
 		y = int(layer.getAttribute('y'))
 		tag = layer.getAttribute('filename')
 		xlayers[tag] = layer
-		if layer.getAttribute('nodetype')=='shapelayer':
+
+		## check if parent layer is a group
+		if layer.parentNode and layer.parentNode.tagName == 'layers':
+			if layer.parentNode.parentNode.tagName=='IMAGE':
+				print('root layer:', layer)
+			elif layer.parentNode.parentNode.tagName=='layer':
+				g = layer.parentNode.parentNode
+				print('layer parent:', g)
+				parent = groups[g.getAttribute('name')]['root']
+
+		if layer.getAttribute('nodetype')=='grouplayer':
+			if bpy:
+				bpy.ops.object.empty_add(type="CIRCLE")
+				ob = bpy.context.active_object
+				ob.name = layer.getAttribute('name')
+				bobs.append(ob)
+				ob.location.x = (x-(width/2)) * 0.01
+				ob.location.z = -(y-(height/2)) * 0.01 
+
+			groups[layer.getAttribute('name')] = {
+				'x': int(layer.getAttribute('x')),
+				'y': int(layer.getAttribute('y')),
+				'children':[],
+				'root':ob,
+			}
+
+		elif layer.getAttribute('nodetype')=='shapelayer':
 			svg = arc.read( layers[tag][0] ).decode('utf-8')
 			print(svg)
 			dump['layers'].append(svg)
@@ -103,34 +130,41 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 				ob.name = layer.getAttribute('name')
 				bobs.append(ob)
 		elif layer.getAttribute('nodetype')=='paintlayer':
-			pixlayers.append( tag )
+			if not int(layer.getAttribute('visible')):
+				print('skip layer:', tag)
+			else:
+				pixlayers.append( tag )
 		elif layer.getAttribute('nodetype')=='filelayer':
 			src = layer.getAttribute('source')
 			assert os.path.isfile(src)
 			reflayers.append( {'source':src, 'x':x, 'y':y} )
-			if src.endswith('.kra'):
-				## nested kra
-				bpy.ops.object.empty_add(type="SINGLE_ARROW")
-				ob = bpy.context.active_object
-				ob.name = src
-				bobs.append(ob)
-				ob['KRITA'] = src
-				#ob.location.x = (x * 0.01) - (width/2)
-				#ob.location.z = (-y * 0.01) - (height/2)
-				ob.location.x = (x-(width/2)) * 0.01
-				ob.location.z = -(y-(height/2)) * 0.01 
-			else:
-				bpy.ops.object.empty_add(type="IMAGE")
-				ob = bpy.context.active_object
-				bobs.append(ob)
-				img = bpy.data.images.load(src)
-				ob.data = img
-				ob.location.x = x
-				ob.location.z = y
-				ob.rotation_euler.x = math.pi/2
-				ob.scale.x = img.width * 0.01
-				ob.scale.y = img.height * 0.01
-
+			if bpy:
+				if src.endswith('.kra'):
+					## nested kra
+					bpy.ops.object.empty_add(type="SINGLE_ARROW")
+					ob = bpy.context.active_object
+					ob.name = src
+					bobs.append(ob)
+					ob['KRITA'] = src
+					if parent:
+						ob.location.x = x * 0.01
+						ob.location.z = -y * 0.01 
+					else:
+						ob.location.x = (x-(width/2)) * 0.01
+						ob.location.z = -(y-(height/2)) * 0.01 
+				else:
+					bpy.ops.object.empty_add(type="IMAGE")
+					ob = bpy.context.active_object
+					bobs.append(ob)
+					img = bpy.data.images.load(src)
+					ob.data = img
+					ob.location.x = (x-(width/2)) * 0.01
+					ob.location.z = -(y-(height/2)) * 0.01 
+					ob.rotation_euler.x = math.pi/2
+					ob.scale.x = img.width * 0.01
+					ob.scale.y = img.height * 0.01
+		if bpy and parent:
+			ob.parent = parent
 
 	while pixlayers:
 		tag = pixlayers.pop()
@@ -177,7 +211,8 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 		root = bpy.context.active_object
 		col.objects.link(root)
 		for o in bobs:
-			o.parent = root
+			if not o.parent:
+				o.parent = root
 			col.objects.link(o)
 
 		if bprops:
@@ -236,13 +271,11 @@ if __name__ == "__main__":
 			kras.append(arg)
 		elif arg=='--blender':
 			run_blender=True
-
 	if run_blender:
 		cmd = ['blender', '--python', __file__]
 		if kras: cmd += ['--'] + kras
 		print(cmd)
 		subprocess.check_call(cmd)
-		sys.exit()
 	elif kras:
 		for kra in kras:
 			a = parse_kra( kra, verbose='--verbose' in sys.argv )
@@ -250,9 +283,10 @@ if __name__ == "__main__":
 		pass
 	else:
 		print('no krita .kra files given')
-		sys.exit()
+
 
 ## in blender below this point ##
+if not bpy: sys.exit()
 from bpy_extras.io_utils import ImportHelper
 
 @bpy.utils.register_class
