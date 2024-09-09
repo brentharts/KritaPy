@@ -138,6 +138,36 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 			src = layer.getAttribute('source')
 			assert os.path.isfile(src)
 			reflayers.append( {'source':src, 'x':x, 'y':y} )
+			if src.endswith('.svg'):
+				svg = xml.dom.minidom.parseString(open(src).read())
+				print(svg.toxml())
+				texts = svg.getElementsByTagName('text')
+				if texts:
+					for t in texts:
+						if not len(t.childNodes): continue
+						tid = t.getAttribute('id')
+						tx  = float(t.getAttribute('x'))
+						ty  = float(t.getAttribute('y'))
+						tscl = t.getAttribute('transforms')
+						if tscl.startswith('scale('):
+							tsx, tsy = tscl.split('(')[-1].split(')')[0].split(',')
+							tsx = float(tsx)
+							tsy = float(tsy)
+						for child in t.childNodes:
+							if child.tagName=='desc':
+								## metadata TODO
+								pass
+							elif child.tagName=='tspan':
+								style = child.getAttribute('style')
+								fontsize = style.split('font-size:')[-1].split(';')[0]
+								assert fontsize.endswith('px')
+								fontsize = float(fontsize[:-2])
+								text = child.firstChild.nodeValue
+								if bpy:
+									bpy.ops.object.text_add()
+									ob = bpy.context.active_object
+									ob.data.body = text
+									ob.name = tid
 			if bpy:
 				if src.endswith('.kra'):
 					## nested kra
@@ -151,8 +181,8 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 						ob.location.z = -y * 0.01 
 					else:
 						ob.location.x = (x-(width/2)) * 0.01
-						ob.location.z = -(y-(height/2)) * 0.01 
-				else:
+						ob.location.z = -(y-(height/2)) * 0.01
+				elif src.endswith(('.png', '.jpg', '.webp', '.tga', '.tif', '.bmp')):
 					bpy.ops.object.empty_add(type="IMAGE")
 					ob = bpy.context.active_object
 					bobs.append(ob)
