@@ -19,6 +19,13 @@ def extractMergedImageFromKRA(kra):
 def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 	svg = xml.dom.minidom.parseString(open(src).read())
 	print(svg.toxml())
+	svg_width = svg.getElementsByTagName('svg')[0].getAttribute('width')
+	svg_height = svg.getElementsByTagName('svg')[0].getAttribute('height')
+	if svg_width.endswith('px'): svg_width = svg_width[:-2]
+	if svg_height.endswith('px'): svg_height = svg_height[:-2]
+	svg_width = float(svg_width)
+	svg_height = float(svg_height)
+
 	for g in svg.getElementsByTagName('g'):
 		for c in g.childNodes:
 			if hasattr(c, 'tagName') and c.tagName=='desc':
@@ -26,6 +33,17 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 				break
 
 	bobs = []
+	rects = []
+	for elt in svg.getElementsByTagName('rect'):
+		r = {
+			'x' : float(elt.getAttribute('x')),
+			'y' : float(elt.getAttribute('y')),
+			'width' : float(elt.getAttribute('width')),
+			'height' : float(elt.getAttribute('height')),
+			'color'  : elt.getAttribute('fill'),
+		}
+		rects.append(r)
+
 	texts = svg.getElementsByTagName('text')
 	if texts:
 		for t in texts:
@@ -67,12 +85,8 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 							txt.from_string('\n'.join(inkscript))
 							SCRIPTS.append({'scope':sco, 'script':txt})
 	if bpy:
-		#bpy.ops.wm.gpencil_import_svg(filepath=src, scale=100, resolution=5)
-		#ob = bpy.context.active_object
-		#ob.name = layer.getAttribute('name')
-		#bobs.append(ob)
-		#ob.location.x = x * 0.01
-		#ob.location.z = -y * 0.01 
+		groups = []
+		gstep = 0.01
 		for g in svg.getElementsByTagName('g'):
 			is_leaf = True
 			for c in g.childNodes:
@@ -81,6 +95,7 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 					break
 			if not is_leaf:
 				continue
+			groups.append(g)
 			gsvg = [
 				'<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
 				'<svg width="%s" height="%s" viewBox="%s" version="1.1">' % (
@@ -101,14 +116,116 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 			bobs.append(ob)
 			ob.location.x = x * 0.01
 			ob.location.z = -y * 0.01
+
+			ob.location.y = -len(groups) * gstep
+			depth_faker( ob )
+
 			if ob.name in gscripts:
 				sco = {'bpy':bpy, 'self':ob, 'math':math, 'random':random}
 				sco[ob.name] = ob
 				txt = bpy.data.texts.new(name=ob.name+'.'+kra_fname)
 				txt.from_string(gscripts[ob.name])
 				SCRIPTS.append({'scope':sco, 'script':txt})
+		if not groups:
+			bpy.ops.wm.gpencil_import_svg(filepath=src, scale=50, resolution=5)
+			ob = bpy.context.active_object
+			#ob.name = layer.getAttribute('name')
+			bobs.append(ob)
+			ob.location.x = x * 0.01
+			ob.location.z = -y * 0.01
+			depth_faker( ob )
+
+
+		if rects:
+			bpy.ops.object.empty_add(type="ARROWS")
+			root = bpy.context.active_object
+			root.name='OFFSEET'
+
+			for r in rects:
+				ob = bpy_make_rect(
+					#r['x'] - (svg_width/2), 
+					#r['y'] - (svg_height/2), 
+					r['x'], 
+					r['y'], 
+					r['width'], 
+					r['height']
+				)
+				ob.parent = root
+				if r['width'] > 150:
+					mod = ob.modifiers.new(name='extrude',type="SOLIDIFY")
+					mod.thickness = r['width'] * 0.004
+				elif abs(r['width'] - r['height']) < 10:  ## its hip to be square
+					mod = ob.modifiers.new(name='extrude',type="SOLIDIFY")
+					mod.thickness = r['width'] * 0.003
+				else:
+					mod = ob.modifiers.new(name='extrude',type="SOLIDIFY")
+					mod.thickness = r['width'] * 0.0025
+
+				clr = r['color']
+				if clr in bpy.data.materials:
+					mat = bpy.data.materials[clr]
+				else:
+					mat = bpy.data.materials.new(name=clr)
+					r,g,b = hex2rgb(clr[1:])
+					mat.diffuse_color[0] = r / 255
+					mat.diffuse_color[1] = g / 255
+					mat.diffuse_color[2] = b / 255
+
+				ob.data.materials.append(mat)
+
+			## TODO this is ugly
+			root.location.x = -4.77 #-4.6
+			root.location.z = 3.91 #3.8
+			root.scale *= 1.333
 
 	return bobs
+
+hex2rgb = lambda hx: (int(hx[0:2],16),int(hx[2:4],16),int(hx[4:6],16))
+#def hex2rgb(hexcode): return tuple(map(ord,hexcode[1:].decode('hex')))
+
+def bpy_make_rect(x,y, width, height, scale=0.01):
+	mesh_data = bpy.data.meshes.new("Rectangle")
+	#mesh_data.from_pydata(
+	#	[
+	#	(x, 0, y),
+	#	(x + width, 0, y),
+	#	(x + width, 0, y + height),
+	#	(x, 0, y + height)
+	#	],
+	#	[],
+	#	[(0, 1, 2, 3)]
+	#)
+
+	y = -y
+	mesh_data.from_pydata(
+	[
+	(x, 0, y - height),
+	(x + width, 0, y - height),
+	(x + width, 0, y),
+	(x, 0, y)
+	],
+	[],
+	[(0, 1, 2, 3)]
+	)
+
+	mesh_data.update()
+	obj = bpy.data.objects.new("Rectangle", mesh_data)
+	for v in obj.data.vertices:
+		v.co *= scale
+	bpy.context.scene.collection.objects.link(obj)
+	return obj
+
+## for grease pencil object imported from svg
+def depth_faker(ob, lstep = 0.01, sstep  = 0.01):
+	f = 0.0
+	for layer in ob.data.layers:
+		for frame in layer.frames:
+			for stroke in frame.strokes:
+				for point in stroke.points:
+					point.co.y -= f
+				f += sstep
+		f += lstep
+
 
 def parse_kra(kra, verbose=False, blender_curves=False):
 	kra_fname = os.path.split(kra)[-1]
@@ -402,14 +519,15 @@ if __name__ == "__main__":
 		print('saving stripped:', output)
 		kraout.close()
 		sys.exit()
-	elif svgs:
-		for s in svgs:
-			parse_svg(s, {})
 	elif run_blender:
 		cmd = ['blender', '--python', __file__]
 		if kras: cmd += ['--'] + kras
+		elif svgs: cmd += ['--'] + svgs
 		print(cmd)
 		subprocess.check_call(cmd)
+	elif svgs:
+		for s in svgs:
+			parse_svg(s, {})
 	elif kras:
 		for kra in kras:
 			a = parse_kra( kra, verbose='--verbose' in sys.argv )
