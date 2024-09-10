@@ -16,6 +16,100 @@ def extractMergedImageFromKRA(kra):
 	image = Image.open(io.BytesIO(extract_image))
 	return image
 
+def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
+	svg = xml.dom.minidom.parseString(open(src).read())
+	print(svg.toxml())
+	for g in svg.getElementsByTagName('g'):
+		for c in g.childNodes:
+			if hasattr(c, 'tagName') and c.tagName=='desc':
+				gscripts[g.getAttribute('id')] = c.firstChild.nodeValue
+				break
+
+	bobs = []
+	texts = svg.getElementsByTagName('text')
+	if texts:
+		for t in texts:
+			if not len(t.childNodes): continue
+			print(t.toxml())
+			tid = t.getAttribute('id')
+			tx  = float(t.getAttribute('x'))
+			ty  = float(t.getAttribute('y'))
+			tscl = t.getAttribute('transform')
+			if tscl.startswith('scale('):
+				tsx, tsy = tscl.split('(')[-1].split(')')[0].split(',')
+				tsx = float(tsx)
+				tsy = float(tsy)
+			inkscript = []
+			for child in t.childNodes:
+				if child.tagName=='desc':
+					## INKSCAPE metadata
+					inkscript.append(child.firstChild.nodeValue)
+				elif child.tagName=='tspan':
+					style = child.getAttribute('style')
+					fontsize = style.split('font-size:')[-1].split(';')[0]
+					assert fontsize.endswith('px')
+					fontsize = float(fontsize[:-2])
+					text = child.firstChild.nodeValue
+					if bpy:
+						bpy.ops.object.text_add()
+						ob = bpy.context.active_object
+						ob.data.body = text
+						ob.name = tid
+						ob.rotation_euler.x = math.pi/2
+						ob.data.size=fontsize * 0.01 * 2
+						ob.scale.x = tsx
+						ob.scale.y = tsy
+						bobs.append(ob)
+						if inkscript:
+							sco = {'bpy':bpy, 'self':ob, 'math':math, 'random':random}
+							sco[tid] = ob
+							txt = bpy.data.texts.new(name=tid+'.'+kra_fname)
+							txt.from_string('\n'.join(inkscript))
+							SCRIPTS.append({'scope':sco, 'script':txt})
+	if bpy:
+		#bpy.ops.wm.gpencil_import_svg(filepath=src, scale=100, resolution=5)
+		#ob = bpy.context.active_object
+		#ob.name = layer.getAttribute('name')
+		#bobs.append(ob)
+		#ob.location.x = x * 0.01
+		#ob.location.z = -y * 0.01 
+		for g in svg.getElementsByTagName('g'):
+			is_leaf = True
+			for c in g.childNodes:
+				if hasattr(c,'tagName') and c.tagName=='g':
+					is_leaf=False
+					break
+			if not is_leaf:
+				continue
+			gsvg = [
+				'<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
+				'<svg width="%s" height="%s" viewBox="%s" version="1.1">' % (
+					svg.documentElement.getAttribute('width'),
+					svg.documentElement.getAttribute('height'),
+					svg.documentElement.getAttribute('viewBox'),
+				),
+				svg.getElementsByTagName('defs')[0].toxml(),
+				g.toxml(),
+				'</svg>',
+			]
+			open('/tmp/%s.svg', 'w').write('\n'.join(gsvg))
+			#bpy.ops.wm.gpencil_import_svg(filepath=src, scale=100, resolution=5)
+			bpy.ops.wm.gpencil_import_svg(filepath=src, scale=50, resolution=5)
+			ob = bpy.context.active_object
+			#ob.name = layer.getAttribute('name')
+			ob.name = g.getAttribute('id')
+			bobs.append(ob)
+			ob.location.x = x * 0.01
+			ob.location.z = -y * 0.01
+			if ob.name in gscripts:
+				sco = {'bpy':bpy, 'self':ob, 'math':math, 'random':random}
+				sco[ob.name] = ob
+				txt = bpy.data.texts.new(name=ob.name+'.'+kra_fname)
+				txt.from_string(gscripts[ob.name])
+				SCRIPTS.append({'scope':sco, 'script':txt})
+
+	return bobs
+
 def parse_kra(kra, verbose=False, blender_curves=False):
 	kra_fname = os.path.split(kra)[-1]
 	arc = zipfile.ZipFile(kra,'r')
@@ -23,7 +117,7 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 	dump = {'layers':[]}
 	groups = {}
 	layers = {}
-	if bpy: bobs = []
+	bobs = []
 
 	for f in arc.filelist:
 		if verbose: print(f)
@@ -141,96 +235,7 @@ def parse_kra(kra, verbose=False, blender_curves=False):
 			assert os.path.isfile(src)
 			reflayers.append( {'source':src, 'x':x, 'y':y} )
 			if src.endswith('.svg'):
-				svg = xml.dom.minidom.parseString(open(src).read())
-				print(svg.toxml())
-				for g in svg.getElementsByTagName('g'):
-					for c in g.childNodes:
-						if hasattr(c, 'tagName') and c.tagName=='desc':
-							gscripts[g.getAttribute('id')] = c.firstChild.nodeValue
-							break
-
-				print(gscripts)
-				texts = svg.getElementsByTagName('text')
-				if texts:
-					for t in texts:
-						if not len(t.childNodes): continue
-						print(t.toxml())
-						tid = t.getAttribute('id')
-						tx  = float(t.getAttribute('x'))
-						ty  = float(t.getAttribute('y'))
-						tscl = t.getAttribute('transform')
-						if tscl.startswith('scale('):
-							tsx, tsy = tscl.split('(')[-1].split(')')[0].split(',')
-							tsx = float(tsx)
-							tsy = float(tsy)
-						inkscript = []
-						for child in t.childNodes:
-							if child.tagName=='desc':
-								## INKSCAPE metadata
-								inkscript.append(child.firstChild.nodeValue)
-							elif child.tagName=='tspan':
-								style = child.getAttribute('style')
-								fontsize = style.split('font-size:')[-1].split(';')[0]
-								assert fontsize.endswith('px')
-								fontsize = float(fontsize[:-2])
-								text = child.firstChild.nodeValue
-								if bpy:
-									bpy.ops.object.text_add()
-									ob = bpy.context.active_object
-									ob.data.body = text
-									ob.name = tid
-									ob.rotation_euler.x = math.pi/2
-									ob.data.size=fontsize * 0.01 * 2
-									ob.scale.x = tsx
-									ob.scale.y = tsy
-									bobs.append(ob)
-									if inkscript:
-										sco = {'bpy':bpy, 'self':ob, 'math':math}
-										sco[tid] = ob
-										txt = bpy.data.texts.new(name=tid+'.'+kra_fname)
-										txt.from_string('\n'.join(inkscript))
-										SCRIPTS.append({'scope':sco, 'script':txt})
-				if bpy:
-					#bpy.ops.wm.gpencil_import_svg(filepath=src, scale=100, resolution=5)
-					#ob = bpy.context.active_object
-					#ob.name = layer.getAttribute('name')
-					#bobs.append(ob)
-					#ob.location.x = x * 0.01
-					#ob.location.z = -y * 0.01 
-					for g in svg.getElementsByTagName('g'):
-						is_leaf = True
-						for c in g.childNodes:
-							if hasattr(c,'tagName') and c.tagName=='g':
-								is_leaf=False
-								break
-						if not is_leaf:
-							continue
-						gsvg = [
-							'<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
-							'<svg width="%s" height="%s" viewBox="%s" version="1.1">' % (
-								svg.documentElement.getAttribute('width'),
-								svg.documentElement.getAttribute('height'),
-								svg.documentElement.getAttribute('viewBox'),
-							),
-							svg.getElementsByTagName('defs')[0].toxml(),
-							g.toxml(),
-							'</svg>',
-						]
-						open('/tmp/%s.svg', 'w').write('\n'.join(gsvg))
-						bpy.ops.wm.gpencil_import_svg(filepath=src, scale=100, resolution=5)
-						ob = bpy.context.active_object
-						#ob.name = layer.getAttribute('name')
-						ob.name = g.getAttribute('id')
-						bobs.append(ob)
-						ob.location.x = x * 0.01
-						ob.location.z = -y * 0.01
-						if ob.name in gscripts:
-							sco = {'bpy':bpy, 'self':ob, 'math':math}
-							sco[ob.name] = ob
-							txt = bpy.data.texts.new(name=ob.name+'.'+kra_fname)
-							txt.from_string(gscripts[ob.name])
-							SCRIPTS.append({'scope':sco, 'script':txt})
-
+				bobs += parse_svg( src, gscripts, x=x, y=y, kra_fname=kra_fname )
 
 			if bpy:
 				if src.endswith('.kra'):
@@ -360,12 +365,47 @@ def safename(n):
 if __name__ == "__main__":
 	run_blender = False
 	kras = []
+	svgs = []
+	output = None
+	do_strip = False
 	for arg in sys.argv:
-		if arg.endswith('.kra'):
+		if arg.startswith('--output='):
+			output = arg.split('=')[-1]
+		elif arg.endswith('.kra'):
 			kras.append(arg)
+		elif arg.endswith('.svg'):
+			svgs.append(arg)
 		elif arg=='--blender':
 			run_blender=True
-	if run_blender:
+		elif arg=='--strip':
+			do_strip = True
+
+	if do_strip:
+		if not output:
+			print('error: output=FILE is required with --strip')
+			raise RuntimeError('invalid command line args with option --strip: %s' % sys.argv)
+		elif not kras:
+			print('error: input .kra file required with --strip')
+			raise RuntimeError('invalid command line args with option --strip: %s' % sys.argv)
+
+		kra = kras[0]
+		assert output != kra
+
+		krain = zipfile.ZipFile(kra,'r')
+		kraout = zipfile.ZipFile(output, 'w')
+		for f in krain.filelist:
+			if f.filename=='mergedimage.png':
+				print('skipping', f)
+				continue
+			print('saving:', f)
+			kraout.writestr(f, krain.read(f.filename))
+		print('saving stripped:', output)
+		kraout.close()
+		sys.exit()
+	elif svgs:
+		for s in svgs:
+			parse_svg(s, {})
+	elif run_blender:
 		cmd = ['blender', '--python', __file__]
 		if kras: cmd += ['--'] + kras
 		print(cmd)
