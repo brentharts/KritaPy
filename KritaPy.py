@@ -198,7 +198,14 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 				#	r['height']
 				#)
 				#ob.parent = root
-				if r['width'] > 150:
+				if 1:
+					mod = ob.modifiers.new(name='extrude',type="SOLIDIFY")
+					if az < 0:
+						mod.thickness = (r['width']+r['height']) * 0.005
+					else:
+						mod.thickness = (r['width']+r['height']) * 0.02
+
+				elif r['width'] > 150:  ## TODO check scale of drawing
 					mod = ob.modifiers.new(name='extrude',type="SOLIDIFY")
 					mod.thickness = r['width'] * 0.02
 				elif abs(r['width'] - r['height']) < 10:  ## its hip to be square
@@ -221,12 +228,58 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 
 					ob.data.materials.append(mat)
 
+			make_grease_layers(gpsvg)
 			## TODO this is ugly
 			root.location.x = -4.77 #-4.6
 			root.location.z = 3.91 #3.8
 			root.scale *= 1.333
 
 	return bobs
+
+def make_grease_layers(ob):
+	mlayers = {
+		'head': ob.data.layers.new('head'),
+		'body': ob.data.layers.new('body'),
+		'arm.L': ob.data.layers.new('arm.L'),
+		'arm.R': ob.data.layers.new('arm.R'),
+
+	}
+	for l in mlayers.values():
+		l.frames.new(1)
+
+	rem = []
+	for stroke in ob.data.layers[0].frames[0].strokes:
+		ax,ay,az = calc_avg_points(stroke)
+		if az > 1:
+			s = mlayers['head'].frames[0].strokes.new()
+			copy_stroke(s, stroke)
+			rem.append(stroke)
+		elif az > -1:
+			if ax < -1:
+				s = mlayers['arm.R'].frames[0].strokes.new()
+				copy_stroke(s, stroke)
+				rem.append(stroke)
+			elif ax > 1:
+				s = mlayers['arm.L'].frames[0].strokes.new()
+				copy_stroke(s, stroke)
+				rem.append(stroke)
+
+	for s in rem:
+		ob.data.layers[0].frames[0].strokes.remove(s)
+
+def copy_stroke(s, stroke):
+	s.points.add(len(stroke.points))
+	for i in range(len(stroke.points)):
+		s.points[i].co = stroke.points[i].co
+		s.points[i].strength = stroke.points[i].strength
+		s.points[i].pressure = stroke.points[i].pressure
+		s.points[i].vertex_color = stroke.points[i].vertex_color
+
+	s.material_index = stroke.material_index
+	s.line_width     = stroke.line_width
+	s.display_mode   = stroke.display_mode
+	s.use_cyclic     = stroke.use_cyclic
+	s.vertex_color_fill = stroke.vertex_color_fill
 
 def calc_width_height(points):
 	if len(points) < 2: return 0, 0  # At least two points are needed
