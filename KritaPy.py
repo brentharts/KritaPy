@@ -34,15 +34,38 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 
 	bobs = []
 	rects = []
-	for elt in svg.getElementsByTagName('rect'):
-		r = {
-			'x' : float(elt.getAttribute('x')),
-			'y' : float(elt.getAttribute('y')),
-			'width' : float(elt.getAttribute('width')),
-			'height' : float(elt.getAttribute('height')),
-			'color'  : elt.getAttribute('fill'),
-		}
-		rects.append(r)
+	#for elt in svg.getElementsByTagName('rect'):
+	eidx = 0
+	for elt in svg.documentElement.childNodes:
+		if not hasattr(elt, 'tagName'): continue
+		if elt.tagName=='rect':
+			r = {
+				'x' : float(elt.getAttribute('x')),
+				'y' : float(elt.getAttribute('y')),
+				'width' : float(elt.getAttribute('width')),
+				'height' : float(elt.getAttribute('height')),
+				'color'  : elt.getAttribute('fill'),
+				'index'  : eidx,
+			}
+			rects.append(r)
+		if elt.tagName=='g':
+			## check one level deep
+			for e in elt.childNodes:
+				if hasattr(e,'tagName'):
+					if e.tagName=='rect':
+						r = {
+							'x' : float(e.getAttribute('x')),
+							'y' : float(e.getAttribute('y')),
+							'width' : float(e.getAttribute('width')),
+							'height' : float(e.getAttribute('height')),
+							'color'  : e.getAttribute('fill'),
+							'index'  : eidx,
+						}
+						rects.append(r)
+
+					eidx += 1
+		else:
+			eidx += 1
 
 	texts = svg.getElementsByTagName('text')
 	if texts:
@@ -87,7 +110,8 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 	if bpy:
 		groups = []
 		gstep = 0.01
-		for g in svg.getElementsByTagName('g'):
+		#for g in svg.getElementsByTagName('g'):
+		for g in []:
 			is_leaf = True
 			for c in g.childNodes:
 				if hasattr(c,'tagName') and c.tagName=='g':
@@ -96,6 +120,10 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 			if not is_leaf:
 				continue
 			groups.append(g)
+			xdefs = ''
+			if len(svg.getElementsByTagName('defs')):
+				xdefs = svg.getElementsByTagName('defs')[0].toxml()
+
 			gsvg = [
 				'<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
 				'<svg width="%s" height="%s" viewBox="%s" version="1.1">' % (
@@ -103,13 +131,13 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 					svg.documentElement.getAttribute('height'),
 					svg.documentElement.getAttribute('viewBox'),
 				),
-				svg.getElementsByTagName('defs')[0].toxml(),
+				xdefs,
 				g.toxml(),
 				'</svg>',
 			]
-			open('/tmp/%s.svg', 'w').write('\n'.join(gsvg))
+			open('/tmp/%s.svg' %g.getAttribute('id'), 'w').write('\n'.join(gsvg))
 			#bpy.ops.wm.gpencil_import_svg(filepath=src, scale=100, resolution=5)
-			bpy.ops.wm.gpencil_import_svg(filepath=src, scale=50, resolution=5)
+			bpy.ops.wm.gpencil_import_svg(filepath='/tmp/%s.svg' %g.getAttribute('id'), scale=50, resolution=5)
 			ob = bpy.context.active_object
 			#ob.name = layer.getAttribute('name')
 			ob.name = g.getAttribute('id')
@@ -127,13 +155,17 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 				txt.from_string(gscripts[ob.name])
 				SCRIPTS.append({'scope':sco, 'script':txt})
 		if not groups:
-			bpy.ops.wm.gpencil_import_svg(filepath=src, scale=50, resolution=5)
+			bpy.ops.wm.gpencil_import_svg(filepath=src, scale=50, resolution=5)  ## TODO recenter_bounds=False
 			ob = bpy.context.active_object
 			#ob.name = layer.getAttribute('name')
 			bobs.append(ob)
 			ob.location.x = x * 0.01
 			ob.location.z = -y * 0.01
 			depth_faker( ob )
+			gpsvg = ob
+			assert len(gpsvg.data.layers)==1
+			assert len(gpsvg.data.layers[0].frames)==1
+			gpstrokes = gpsvg.data.layers[0].frames[0].strokes
 
 
 		if rects:
@@ -141,37 +173,53 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 			root = bpy.context.active_object
 			root.name='OFFSEET'
 
+
+
 			for r in rects:
-				ob = bpy_make_rect(
-					#r['x'] - (svg_width/2), 
-					#r['y'] - (svg_height/2), 
-					r['x'], 
-					r['y'], 
-					r['width'], 
-					r['height']
-				)
-				ob.parent = root
+				print('stroke index:', r['index'])
+				stroke = gpstrokes[r['index']]
+				ax,ay,az = calc_avg_points( stroke )
+				bpy.ops.mesh.primitive_plane_add(location=(ax,ay,az))
+				ob = bpy.context.active_object
+				#ob.scale.x = (r['width']/2) * 0.01
+				#ob.scale.y = (r['height']/2) * 0.01
+				_w, _h = calc_width_height(stroke.points)
+				ob.scale.x = _w/2
+				ob.scale.y = _h/2
+				ob.rotation_euler.x = math.pi/2
+				ob.location.y += 0.05
+
+				#ob = bpy_make_rect(
+				#	#r['x'] - (svg_width/2), 
+				#	#r['y'] - (svg_height/2), 
+				#	r['x'], 
+				#	r['y'], 
+				#	r['width'], 
+				#	r['height']
+				#)
+				#ob.parent = root
 				if r['width'] > 150:
 					mod = ob.modifiers.new(name='extrude',type="SOLIDIFY")
-					mod.thickness = r['width'] * 0.004
+					mod.thickness = r['width'] * 0.02
 				elif abs(r['width'] - r['height']) < 10:  ## its hip to be square
 					mod = ob.modifiers.new(name='extrude',type="SOLIDIFY")
-					mod.thickness = r['width'] * 0.003
+					mod.thickness = r['width'] * 0.0125
 				else:
 					mod = ob.modifiers.new(name='extrude',type="SOLIDIFY")
-					mod.thickness = r['width'] * 0.0025
+					mod.thickness = r['width'] * 0.01
 
 				clr = r['color']
-				if clr in bpy.data.materials:
-					mat = bpy.data.materials[clr]
-				else:
-					mat = bpy.data.materials.new(name=clr)
-					r,g,b = hex2rgb(clr[1:])
-					mat.diffuse_color[0] = r / 255
-					mat.diffuse_color[1] = g / 255
-					mat.diffuse_color[2] = b / 255
+				if clr and clr.startswith('#'):
+					if clr in bpy.data.materials:
+						mat = bpy.data.materials[clr]
+					else:
+						mat = bpy.data.materials.new(name=clr)
+						r,g,b = hex2rgb(clr[1:])
+						mat.diffuse_color[0] = r / 255
+						mat.diffuse_color[1] = g / 255
+						mat.diffuse_color[2] = b / 255
 
-				ob.data.materials.append(mat)
+					ob.data.materials.append(mat)
 
 			## TODO this is ugly
 			root.location.x = -4.77 #-4.6
@@ -179,6 +227,29 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 			root.scale *= 1.333
 
 	return bobs
+
+def calc_width_height(points):
+	if len(points) < 2: return 0, 0  # At least two points are needed
+	# Find the minimum and maximum x and y values
+	min_x = min(point.co.x for point in points)
+	max_x = max(point.co.x for point in points)
+	min_y = min(point.co.z for point in points)
+	max_y = max(point.co.z for point in points)  
+	# Calculate the width and height
+	width = max_x - min_x
+	height = max_y - min_y
+	return width, height
+
+def calc_avg_points(stroke):
+	x = y = z = 0.0
+	for p in stroke.points:
+		x+=p.co.x
+		y+=p.co.y
+		z+=p.co.z
+	x /= len(stroke.points)
+	y /= len(stroke.points)
+	z /= len(stroke.points)
+	return (x,y,z)
 
 hex2rgb = lambda hx: (int(hx[0:2],16),int(hx[2:4],16),int(hx[4:6],16))
 #def hex2rgb(hexcode): return tuple(map(ord,hexcode[1:].decode('hex')))
