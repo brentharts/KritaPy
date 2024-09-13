@@ -21,8 +21,8 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 	print(svg.toxml())
 	svg_width = svg.getElementsByTagName('svg')[0].getAttribute('width')
 	svg_height = svg.getElementsByTagName('svg')[0].getAttribute('height')
-	if svg_width.endswith('px'): svg_width = svg_width[:-2]
-	if svg_height.endswith('px'): svg_height = svg_height[:-2]
+	if svg_width.endswith( ('px','mm') ): svg_width = svg_width[:-2]
+	if svg_height.endswith( ('px','mm') ): svg_height = svg_height[:-2]
 	svg_width = float(svg_width)
 	svg_height = float(svg_height)
 
@@ -47,6 +47,10 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 				'color'  : elt.getAttribute('fill'),
 				'index'  : eidx,
 			}
+			if not r['color'].strip():
+				css = elt.getAttribute('style')
+				if 'fill:' in css:
+					r['color'] = css.split('fill:')[-1].split(';')[0]
 			rects.append(r)
 		if elt.tagName=='g':
 			## check one level deep
@@ -61,6 +65,11 @@ def parse_svg(src, gscripts, x=0, y=0, kra_fname=''):
 							'color'  : e.getAttribute('fill'),
 							'index'  : eidx,
 						}
+						if not r['color'].strip():
+							css = e.getAttribute('style')
+							if 'fill:' in css:
+								r['color'] = css.split('fill:')[-1].split(';')[0]
+
 						rects.append(r)
 
 					eidx += 1
